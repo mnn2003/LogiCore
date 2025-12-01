@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { collection, addDoc, query, where, getDocs, orderBy, updateDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,9 +8,11 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Clock, MapPin, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import Calendar from 'react-calendar';
+import { Clock, MapPin, AlertCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { format } from 'date-fns';
+import 'react-calendar/dist/Calendar.css';
 
 interface AttendanceTabProps {
   onAttendanceUpdate?: () => void;
@@ -20,6 +22,7 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
   const { user } = useAuth();
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
   const [todayRecord, setTodayRecord] = useState<any>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [holidays, setHolidays] = useState<any[]>([]);
   const [selectedHoliday, setSelectedHoliday] = useState<any>(null);
   const [showHolidayDialog, setShowHolidayDialog] = useState(false);
@@ -28,11 +31,27 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
   const [showEditRequestDialog, setShowEditRequestDialog] = useState(false);
   const [editRequestReason, setEditRequestReason] = useState('');
   const [editRequestPunchOut, setEditRequestPunchOut] = useState('');
+  const [employeeData, setEmployeeData] = useState<any>(null);
 
   useEffect(() => {
     fetchAttendance();
     fetchHolidays();
+    fetchEmployeeData();
   }, [user]);
+
+  const fetchEmployeeData = async () => {
+    if (!user) return;
+    try {
+      const q = query(collection(db, 'employees'), where('userId', '==', user.uid));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        const data = snapshot.docs[0].data();
+        setEmployeeData({ id: snapshot.docs[0].id, ...data });
+      }
+    } catch (error) {
+      console.error('Error fetching employee data:', error);
+    }
+  };
 
   const fetchHolidays = async () => {
     try {
@@ -45,28 +64,55 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
   };
 
   const fetchAttendance = async () => {
-    if (!user) return;
+  if (!user) return;
+  try {
+    // Method 1: Try with ordering (requires index)
     try {
       const q = query(
         collection(db, 'attendance'),
-        where('employeeId', '==', user.uid)
+        where('employeeId', '==', user.uid),
+        orderBy('date', 'desc')
       );
       const snapshot = await getDocs(q);
-      const records = snapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data() 
-      })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      
+      const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      console.log('Records with order:', records);
       setAttendanceRecords(records);
-      
+
       const today = new Date().toISOString().split('T')[0];
       const todayRec = records.find((r: any) => r.date === today);
       setTodayRecord(todayRec);
-    } catch (error) {
-      console.error('Error fetching attendance:', error);
-      toast.error('Failed to load attendance records');
+    } catch (error: any) {
+      if (error.code === 'failed-precondition') {
+        console.log('Firestore index missing, fetching without order...');
+        // Method 2: Fetch without orderBy and sort manually
+        const q = query(
+          collection(db, 'attendance'),
+          where('employeeId', '==', user.uid)
+        );
+        const snapshot = await getDocs(q);
+        const records = snapshot.docs.map(doc => ({ 
+          id: doc.id, 
+          ...doc.data() 
+        })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        console.log('Records without order:', records);
+        setAttendanceRecords(records);
+
+        const today = new Date().toISOString().split('T')[0];
+        const todayRec = records.find((r: any) => r.date === today);
+        setTodayRecord(todayRec);
+        
+        // Show user-friendly message
+        toast.error('Please create Firestore index for better performance');
+      } else {
+        throw error;
+      }
     }
-  };
+  } catch (error) {
+    console.error('Error fetching attendance:', error);
+    toast.error('Failed to load attendance records');
+  }
+};
 
   const getLocation = () => {
     return new Promise<{ lat: number; lng: number }>((resolve, reject) => {
@@ -82,6 +128,7 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
 
   const handlePunchIn = async () => {
     try {
+      // Check if already punched in today
       const today = new Date().toISOString().split('T')[0];
       if (todayRecord) {
         toast.error('You have already punched in today!');
@@ -135,6 +182,7 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
   const tileClassName = ({ date, view }: any) => {
     if (view !== 'month') return '';
     
+    // Create date string in YYYY-MM-DD format avoiding timezone issues
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -144,26 +192,36 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
     const holiday = holidays.find((h: any) => h.date === dateStr);
     const isSunday = date.getDay() === 0;
     
+    // Get today at midnight for accurate comparison
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const compareDate = new Date(date);
     compareDate.setHours(0, 0, 0, 0);
     const isFuture = compareDate > today;
     
-    if (isFuture) return 'text-gray-400';
-    if (holiday) return 'bg-purple-100 text-purple-700 border border-purple-300';
-    if (record) return 'bg-green-100 text-green-700 border border-green-300';
-    if (isSunday) return 'bg-gray-100 text-gray-600';
+    // Don't style future dates
+    if (isFuture) return 'text-muted-foreground/50';
     
-    const isWeekday = date.getDay() >= 1 && date.getDay() <= 5;
+    // Priority order: Holiday > Present > Absent > Sunday
+    if (holiday) return 'bg-purple-500/20 text-purple-700 font-bold hover:bg-purple-500/30';
+    if (record) return 'bg-green-500/20 text-green-700 font-semibold hover:bg-green-500/30';
+    if (isSunday) return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200';
+    
+    // Mark as absent only if it's a weekday (Mon-Fri) in the past
+    const isWeekday = date.getDay() >= 1 && date.getDay() <= 5; // Monday to Friday
     const isPastWeekday = compareDate < today && isWeekday;
     
-    if (isPastWeekday) return 'bg-red-100 text-red-600 border border-red-200';
+    if (isPastWeekday) {
+      return 'bg-red-100 text-red-600 font-semibold hover:bg-red-200';
+    }
     
     return '';
   };
 
   const handleDateClick = (date: Date) => {
+    setSelectedDate(date);
+    
+    // Create date string avoiding timezone issues
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -195,6 +253,7 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
     }
 
     try {
+      // Get HR and HOD user IDs
       const hrQuery = query(collection(db, 'user_roles'), where('role', '==', 'hr'));
       const hodQuery = query(collection(db, 'user_roles'), where('role', '==', 'hod'));
       
@@ -216,7 +275,9 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
       await addDoc(collection(db, 'attendance_edit_requests'), {
         attendanceId: selectedAttendance.id,
         employeeId: user!.uid,
+        employeeName: employeeData?.name || user!.email,
         date: selectedAttendance.date,
+        currentPunchIn: selectedAttendance.punchIn,
         currentPunchOut: selectedAttendance.punchOut,
         requestedPunchOut: editRequestPunchOut,
         reason: editRequestReason,
@@ -225,7 +286,7 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
         createdAt: new Date().toISOString()
       });
 
-      toast.success('Edit request submitted');
+      toast.success('Edit request submitted to HR/HOD');
       setShowEditRequestDialog(false);
       setEditRequestPunchOut('');
       setEditRequestReason('');
@@ -237,34 +298,35 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
 
   return (
     <div className="space-y-6">
-      {/* Today's Attendance */}
-      <Card className="bg-white border border-gray-200 shadow-sm">
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-            <Clock className="h-5 w-5 text-blue-600" />
+      <Card className="border-primary/20 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10">
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <Clock className="h-6 w-6 text-primary" />
             Today's Attendance
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6 pt-6">
           {todayRecord ? (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-lg bg-green-50 border border-green-200">
-                  <p className="text-sm text-gray-600 mb-1">Punch In</p>
+                <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+                  <p className="text-sm text-muted-foreground mb-1">Punch In</p>
                   <p className="text-2xl font-bold text-green-600">
                     {new Date(todayRecord.punchIn).toLocaleTimeString('en-US', { 
                       hour: '2-digit', 
-                      minute: '2-digit'
+                      minute: '2-digit',
+                      hour12: true 
                     })}
                   </p>
                 </div>
                 {todayRecord.punchOut && (
-                  <div className="p-4 rounded-lg bg-red-50 border border-red-200">
-                    <p className="text-sm text-gray-600 mb-1">Punch Out</p>
+                  <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
+                    <p className="text-sm text-muted-foreground mb-1">Punch Out</p>
                     <p className="text-2xl font-bold text-red-600">
                       {new Date(todayRecord.punchOut).toLocaleTimeString('en-US', { 
                         hour: '2-digit', 
-                        minute: '2-digit'
+                        minute: '2-digit',
+                        hour12: true 
                       })}
                     </p>
                   </div>
@@ -273,24 +335,29 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
               {!todayRecord.punchOut && (
                 <Button 
                   onClick={handlePunchOut} 
-                  className="w-full bg-red-600 hover:bg-red-700"
+                  variant="destructive" 
+                  size="lg"
+                  className="w-full"
                 >
                   <MapPin className="mr-2 h-5 w-5" />
                   Punch Out
                 </Button>
               )}
               {todayRecord.punchOut && (
-                <div className="p-4 rounded-lg bg-blue-50 border border-blue-200 text-center">
-                  <p className="text-sm text-gray-600">Total Hours</p>
-                  <p className="text-xl font-bold text-blue-600">
+                <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 text-center">
+                  <p className="text-sm text-muted-foreground">Total Hours</p>
+                  <p className="text-xl font-bold text-primary">
                     {((new Date(todayRecord.punchOut).getTime() - new Date(todayRecord.punchIn).getTime()) / (1000 * 60 * 60)).toFixed(2)} hrs
                   </p>
                 </div>
               )}
             </div>
           ) : (
-            <div className="text-center py-4">
-              <Button onClick={handlePunchIn} className="bg-blue-600 hover:bg-blue-700">
+            <div className="text-center py-8">
+              <div className="mb-4">
+                <Clock className="h-16 w-16 mx-auto text-muted-foreground/30" />
+              </div>
+              <Button onClick={handlePunchIn} size="lg" className="w-full md:w-auto">
                 <MapPin className="mr-2 h-5 w-5" />
                 Punch In
               </Button>
@@ -299,160 +366,144 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
         </CardContent>
       </Card>
 
-      {/* Recent Records */}
-      <Card className="bg-white border border-gray-200 shadow-sm">
+      <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle className="text-lg font-semibold text-gray-900">Recent Attendance</CardTitle>
+          <CardTitle>Attendance Calendar</CardTitle>
         </CardHeader>
         <CardContent>
-          {attendanceRecords.length === 0 ? (
-            <p className="text-center text-gray-600 py-4">No attendance records found</p>
-          ) : (
-            <div className="space-y-3">
-              {attendanceRecords.slice(0, 5).map((record) => (
-                <div 
-                  key={record.id} 
-                  className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
-                  onClick={() => handleDateClick(new Date(record.date))}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {format(new Date(record.date), 'MMMM dd, yyyy')}
-                      </p>
-                      <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
-                        {record.punchIn && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {new Date(record.punchIn).toLocaleTimeString('en-US', { 
-                              hour: '2-digit', 
-                              minute: '2-digit'
-                            })}
-                          </span>
-                        )}
-                        {record.punchOut && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {new Date(record.punchOut).toLocaleTimeString('en-US', { 
-                              hour: '2-digit', 
-                              minute: '2-digit'
-                            })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <Badge className={
-                      record.punchIn && record.punchOut ? 'bg-green-100 text-green-800 border-green-200' :
-                      record.punchIn && !record.punchOut ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
-                      'bg-red-100 text-red-800 border-red-200'
-                    }>
-                      {record.punchIn && record.punchOut ? 'Present' : 
-                       record.punchIn && !record.punchOut ? 'Pending' : 'Absent'}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-4 p-3 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-green-500"></div>
+                <span className="text-sm">✅ Present</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-red-200"></div>
+                <span className="text-sm">❌ Absent</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-purple-500"></div>
+                <span className="text-sm">🎉 Holiday</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-yellow-200"></div>
+                <span className="text-sm">🌟 Sunday</span>
+              </div>
             </div>
-          )}
+            <Calendar
+              onChange={(value: any) => setSelectedDate(value)}
+              onClickDay={handleDateClick}
+              value={selectedDate}
+              tileClassName={tileClassName}
+              className="w-full"
+            />
+            {attendanceRecords.length === 0 && (
+              <p className="text-center text-muted-foreground text-sm mt-4">
+                No attendance records found
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
-      {/* Holiday List */}
-      {holidays.length > 0 && (
-        <Card className="bg-white border border-gray-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-gray-900">Upcoming Holidays</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {holidays
-                .map(dateStr => {
-                  const [year, month, day] = dateStr.split('-').map(Number);
-                  return { dateStr, date: new Date(year, month - 1, day) };
-                })
-                .filter(({ date }) => date >= new Date(new Date().setHours(0, 0, 0, 0)))
-                .sort((a, b) => a.date.getTime() - b.date.getTime())
-                .slice(0, 3)
-                .map(({ dateStr, date }) => (
-                  <div key={dateStr} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <span className="text-sm font-medium text-gray-900">
-                      {format(date, 'MMMM dd, yyyy')}
-                    </span>
-                    <Badge className="bg-purple-100 text-purple-700 border-purple-200">Holiday</Badge>
-                  </div>
-                ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Dialogs */}
       <Dialog open={showHolidayDialog} onOpenChange={setShowHolidayDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Holiday Details</DialogTitle>
           </DialogHeader>
           {selectedHoliday && (
             <div className="space-y-4">
               <div>
-                <p className="text-sm text-gray-600">Date</p>
-                <p className="text-lg font-semibold text-gray-900">
-                  {format(new Date(selectedHoliday.date), 'MMMM dd, yyyy')}
+                <p className="text-sm text-muted-foreground">Date</p>
+                <p className="text-lg font-semibold">
+                  {(() => {
+                    // FIX: Check if date is a string before splitting
+                    if (typeof selectedHoliday.date === 'string') {
+                      const [year, month, day] = selectedHoliday.date.split('-').map(Number);
+                      return format(new Date(year, month - 1, day), 'MMMM dd, yyyy');
+                    } else if (selectedHoliday.date instanceof Date) {
+                      return format(selectedHoliday.date, 'MMMM dd, yyyy');
+                    } else if (selectedHoliday.date && selectedHoliday.date.seconds) {
+                      // If it's a Firestore timestamp
+                      return format(new Date(selectedHoliday.date.seconds * 1000), 'MMMM dd, yyyy');
+                    } else {
+                      return 'Invalid date';
+                    }
+                  })()}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Holiday Name</p>
-                <p className="text-lg font-semibold text-gray-900">{selectedHoliday.name}</p>
+                <p className="text-sm text-muted-foreground">Holiday Name</p>
+                <p className="text-lg font-semibold">{selectedHoliday.name}</p>
               </div>
+              {selectedHoliday.description && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Description</p>
+                  <p className="text-base">{selectedHoliday.description}</p>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
       </Dialog>
 
       <Dialog open={showAttendanceDialog} onOpenChange={setShowAttendanceDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Attendance Details</DialogTitle>
           </DialogHeader>
           {selectedAttendance && (
             <div className="space-y-4">
               <div>
-                <p className="text-sm text-gray-600">Date</p>
-                <p className="text-lg font-semibold text-gray-900">
-                  {format(new Date(selectedAttendance.date), 'MMMM dd, yyyy')}
-                </p>
+                <p className="text-sm text-muted-foreground">Date</p>
+                <p className="text-lg font-semibold">{format(new Date(selectedAttendance.date), 'MMMM dd, yyyy')}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 rounded-lg bg-green-50 border border-green-200">
-                  <p className="text-sm text-gray-600 mb-1">Punch In</p>
+                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                  <p className="text-sm text-muted-foreground mb-1">Punch In</p>
                   <p className="text-lg font-semibold text-green-600">
                     {new Date(selectedAttendance.punchIn).toLocaleTimeString('en-US', { 
                       hour: '2-digit', 
-                      minute: '2-digit'
+                      minute: '2-digit',
+                      hour12: true 
                     })}
                   </p>
                 </div>
                 {selectedAttendance.punchOut && (
-                  <div className="p-3 rounded-lg bg-red-50 border border-red-200">
-                    <p className="text-sm text-gray-600 mb-1">Punch Out</p>
+                  <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                    <p className="text-sm text-muted-foreground mb-1">Punch Out</p>
                     <p className="text-lg font-semibold text-red-600">
                       {new Date(selectedAttendance.punchOut).toLocaleTimeString('en-US', { 
                         hour: '2-digit', 
-                        minute: '2-digit'
+                        minute: '2-digit',
+                        hour12: true 
                       })}
                     </p>
                   </div>
                 )}
               </div>
+              {selectedAttendance.punchOut && (
+                <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 text-center">
+                  <p className="text-sm text-muted-foreground">Total Hours Worked</p>
+                  <p className="text-2xl font-bold text-primary">
+                    {((new Date(selectedAttendance.punchOut).getTime() - new Date(selectedAttendance.punchIn).getTime()) / (1000 * 60 * 60)).toFixed(2)} hours
+                  </p>
+                </div>
+              )}
               {!selectedAttendance.punchOut && (
-                <Button 
-                  onClick={() => handleRequestEdit(selectedAttendance)} 
-                  variant="outline" 
-                  className="w-full"
-                >
-                  <AlertCircle className="h-4 w-4 mr-2" />
-                  Request Edit
-                </Button>
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-center">
+                    <p className="text-sm text-yellow-700">No punch out recorded for this day</p>
+                  </div>
+                  <Button 
+                    onClick={() => handleRequestEdit(selectedAttendance)} 
+                    variant="outline" 
+                    className="w-full"
+                  >
+                    <AlertCircle className="h-4 w-4 mr-2" />
+                    Request Attendance Edit
+                  </Button>
+                </div>
               )}
             </div>
           )}
@@ -460,33 +511,41 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
       </Dialog>
 
       <Dialog open={showEditRequestDialog} onOpenChange={setShowEditRequestDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Request Attendance Edit</DialogTitle>
             <DialogDescription>
-              Request HR/HOD to update your punch out time
+              Request HR/HOD to update your punch out time for {selectedAttendance?.date}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">Current Punch In</p>
+              <p className="font-medium">
+                {selectedAttendance?.punchIn && new Date(selectedAttendance.punchIn).toLocaleTimeString('en-US', { 
+                  hour: '2-digit', 
+                  minute: '2-digit',
+                  hour12: true 
+                })}
+              </p>
+            </div>
             <div className="space-y-2">
-              <p className="text-sm font-medium text-gray-700">Requested Punch Out Time</p>
+              <label className="text-sm font-medium">Requested Punch Out Time</label>
               <Input
                 type="time"
                 value={editRequestPunchOut}
                 onChange={(e) => setEditRequestPunchOut(e.target.value)}
                 required
-                className="border-gray-300"
               />
             </div>
             <div className="space-y-2">
-              <p className="text-sm font-medium text-gray-700">Reason for Edit</p>
+              <label className="text-sm font-medium">Reason for Edit Request</label>
               <Textarea
                 value={editRequestReason}
                 onChange={(e) => setEditRequestReason(e.target.value)}
-                placeholder="Explain why you need this correction..."
+                placeholder="Please explain why you need this attendance correction..."
                 rows={4}
                 required
-                className="border-gray-300"
               />
             </div>
           </div>
@@ -494,7 +553,7 @@ const AttendanceTab = ({ onAttendanceUpdate }: AttendanceTabProps) => {
             <Button variant="outline" onClick={() => setShowEditRequestDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={submitEditRequest} className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={submitEditRequest}>
               Submit Request
             </Button>
           </DialogFooter>
