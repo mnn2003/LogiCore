@@ -3,13 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'react-hot-toast';
-import { doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
-import { updatePassword, sendPasswordResetEmail } from 'firebase/auth';
-import { Building, User, Lock, Mail, Search, ArrowLeft, Eye, EyeOff, CheckCircle, Globe } from 'lucide-react';
+import { sendPasswordResetEmail } from 'firebase/auth';
 
 const Login = () => {
   const [step, setStep] = useState<'company' | 'login'>('company');
@@ -21,12 +19,11 @@ const Login = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [systemSettings, setSystemSettings] = useState({
-    systemName: 'LogiCore',
+    systemName: 'HR Management System',
     logoUrl: ''
   });
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const { login, logout, setOrganization, userRole } = useAuth();
+
+  const { login, logout, setOrganization } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -70,25 +67,22 @@ const Login = () => {
       toast.error('Please enter company name or code');
       return;
     }
-    
+
     try {
-      const { collection, query, where, getDocs, or } = await import('firebase/firestore');
+      const { collection, query, where, getDocs } = await import('firebase/firestore');
       const orgsRef = collection(db, 'organizations');
-      const q = query(
-        orgsRef,
-        where('isActive', '==', true)
-      );
-      
+      const q = query(orgsRef, where('isActive', '==', true));
+
       const snapshot = await getDocs(q);
       const orgs = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter((org: any) => 
+        .filter((org: any) =>
           org.name.toLowerCase().includes(companySearch.toLowerCase()) ||
           org.code?.toLowerCase().includes(companySearch.toLowerCase())
         );
-      
+
       setOrganizations(orgs);
-      
+
       if (orgs.length === 0) {
         toast.error('No active organizations found');
       }
@@ -102,7 +96,6 @@ const Login = () => {
     try {
       const orgDoc = await getDoc(doc(db, 'organizations', org.id));
       const orgData = orgDoc.exists() ? { id: org.id, ...orgDoc.data() } : org;
-      console.log('Selected organization data:', orgData);
       setSelectedOrganization(orgData);
       setOrganization(org.id, org.name);
       setStep('login');
@@ -116,11 +109,10 @@ const Login = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    
+
     try {
       let loginEmail = employeeCode;
-      
+
       // If not an email format, lookup employee by code
       if (!employeeCode.includes('@')) {
         const { collection, query, where, getDocs } = await import('firebase/firestore');
@@ -131,7 +123,7 @@ const Login = () => {
           where('organizationId', '==', selectedOrganization?.id || '')
         );
         const snapshot = await getDocs(q);
-        
+
         if (!snapshot.empty) {
           const employeeData = snapshot.docs[0].data();
           loginEmail = employeeData.email || `${employeeCode}@company.local`;
@@ -140,92 +132,81 @@ const Login = () => {
           loginEmail = `${employeeCode}@company.local`;
         }
       }
-      
+
       // Login with Firebase Auth
       await login(loginEmail, password);
-      
+
       // Get current user
       const currentUser = auth.currentUser;
       if (!currentUser) {
         toast.error('Login failed');
-        setLoading(false);
         return;
       }
-      
+
       // Check user role
       const roleDoc = await getDoc(doc(db, 'user_roles', currentUser.uid));
       const isSuperAdmin = roleDoc.exists() && roleDoc.data().role === 'super-admin';
-      
+
       // Super-admin can login without selecting organization
       if (isSuperAdmin) {
         toast.success('Welcome Super Admin!');
         navigate('/dashboard');
-        setLoading(false);
         return;
       }
-      
+
       // Regular users must select organization
       if (!selectedOrganization) {
         toast.error('Please select an organization first');
         await logout();
-        setLoading(false);
         return;
       }
-      
+
       // Check if user belongs to selected organization
       const employeeDoc = await getDoc(doc(db, 'employees', currentUser.uid));
       if (!employeeDoc.exists()) {
         toast.error('Employee record not found');
         await logout();
-        setLoading(false);
         return;
       }
-      
+
       const employeeData = employeeDoc.data();
-      
+
       // Check if user is blocked
       if (employeeData.isBlocked) {
         toast.error('Your account has been blocked. Please contact HR.');
         await logout();
-        setLoading(false);
         return;
       }
-      
+
       // Check organization match
       if (employeeData.organizationId !== selectedOrganization.id) {
         toast.error('You do not belong to this organization');
         await logout();
-        setLoading(false);
         return;
       }
-      
+
       toast.success('Login successful!');
       navigate('/dashboard');
     } catch (error: any) {
       console.error('Login error:', error);
       toast.error('Invalid credentials');
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    
     try {
       let emailToReset = resetEmail.trim();
-      
+
       // If not an email format, lookup employee by code
       if (!emailToReset.includes('@')) {
         if (!selectedOrganization) {
           toast.error('Please select your organization first');
           setShowForgotPassword(false);
           setStep('company');
-          setLoading(false);
           return;
         }
-        
+
         const { collection, query, where, getDocs } = await import('firebase/firestore');
         const employeesRef = collection(db, 'employees');
         const q = query(
@@ -234,33 +215,32 @@ const Login = () => {
           where('organizationId', '==', selectedOrganization.id)
         );
         const snapshot = await getDocs(q);
-        
+
         if (!snapshot.empty) {
           const employeeData = snapshot.docs[0].data();
           if (!employeeData.email) {
             toast.error('No email address found for this employee code. Please contact HR.');
-            setLoading(false);
             return;
           }
           emailToReset = employeeData.email;
         } else {
           toast.error('Employee not found. Please check your employee code.');
-          setLoading(false);
           return;
         }
       }
-      
+
       // Validate email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(emailToReset)) {
         toast.error('Invalid email address format.');
-        setLoading(false);
         return;
       }
-      
+
       // Send password reset email without custom redirect URL
       await sendPasswordResetEmail(auth, emailToReset);
-      toast.success('Password reset email sent! Please check your inbox and spam folder. Follow the link in the email to reset your password.');
+      toast.success(
+        'Password reset email sent! Please check your inbox and spam folder. Follow the link in the email to reset your password.'
+      );
       setShowForgotPassword(false);
       setResetEmail('');
     } catch (error: any) {
@@ -278,312 +258,407 @@ const Login = () => {
       } else {
         toast.error('Failed to send reset email. Please try again or contact your HR administrator.');
       }
-    } finally {
-      setLoading(false);
     }
   };
 
+  const isCompanyStep = step === 'company';
+  const isLoginStep = step === 'login';
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg">
-        {/* Header Section */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl shadow-lg mb-4">
-            <Globe className="h-8 w-8 text-white" />
+    <div className="min-h-screen bg-gradient-to-br from-primary/15 via-background to-accent/20 relative overflow-hidden flex items-center justify-center">
+      {/* Background accents */}
+      <div className="pointer-events-none absolute inset-0 opacity-40">
+        <div className="absolute -top-24 -left-24 h-60 w-60 rounded-full bg-primary/30 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-72 w-72 rounded-full bg-accent/30 blur-3xl" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-5xl px-4 py-8">
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            {systemSettings.logoUrl ? (
+              <div className="h-10 w-10 overflow-hidden rounded-xl bg-background/70 shadow-sm ring-1 ring-border/40">
+                <img
+                  src={systemSettings.logoUrl}
+                  alt={systemSettings.systemName}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-sm ring-1 ring-primary/30">
+                <span className="text-lg font-semibold">
+                  {systemSettings.systemName?.charAt(0)?.toUpperCase() || 'H'}
+                </span>
+              </div>
+            )}
+            <div>
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                Welcome to
+              </p>
+              <h1 className="text-base font-semibold leading-tight">
+                {systemSettings.systemName || 'HR Management System'}
+              </h1>
+            </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">HR Management System</h1>
-          <p className="text-gray-600 mt-2">Sign in to access your account</p>
+
+          <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground bg-background/70 px-3 py-1.5 rounded-full border border-border/60 shadow-sm">
+            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            Secure employee & HR portal
+          </div>
         </div>
 
-        <Card className="bg-white/80 backdrop-blur-sm shadow-xl border-0">
-          <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-xl font-semibold text-center text-gray-900">
-              {step === 'company' ? 'Select Your Company' : 'Sign In to Your Account'}
-            </CardTitle>
-            <CardDescription className="text-center text-gray-600">
-              {step === 'company' 
-                ? 'Search for your organization to continue' 
-                : selectedOrganization 
-                  ? `Continue to ${selectedOrganization.name}` 
-                  : 'Enter your credentials to continue'}
-            </CardDescription>
-          </CardHeader>
-          
-          <CardContent className="space-y-4">
-            {step === 'company' ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="companySearch" className="text-sm font-medium text-gray-700">
-                    Search Your Company
-                  </Label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="companySearch"
-                      value={companySearch}
-                      onChange={(e) => setCompanySearch(e.target.value)}
-                      placeholder="Company name or code"
-                      onKeyDown={(e) => e.key === 'Enter' && searchOrganizations()}
-                      className="pl-10 bg-gray-50 border-gray-200"
-                    />
+        <div className="grid gap-8 lg:grid-cols-[1.15fr,1fr] items-stretch">
+          {/* Left / Marketing panel */}
+          <Card className="hidden lg:flex flex-col justify-between bg-background/80 border-border/60 backdrop-blur-xl shadow-xl">
+            <CardContent className="pt-6 pb-6 flex flex-col gap-6">
+              <div>
+                <p className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                  HR Suite
+                  <span className="h-1 w-1 rounded-full bg-primary" />
+                  Multi-organization
+                </p>
+
+                <h2 className="mt-4 text-2xl font-semibold leading-snug">
+                  Modern HR, single login.
+                  <span className="block text-base font-normal text-muted-foreground mt-1.5">
+                    Switch organizations, manage teams, and access your HR tools from one clean interface.
+                  </span>
+                </h2>
+              </div>
+
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <div className="flex gap-3 rounded-xl border border-border/60 bg-muted/40 p-3.5">
+                  <div className="mt-1 h-6 w-6 flex items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    1
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Select your organization</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Quickly find your company by name or code. Super admins can skip this step.
+                    </p>
                   </div>
                 </div>
-                
-                <Button 
-                  onClick={searchOrganizations} 
-                  className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-sm"
-                >
-                  <Search className="h-4 w-4 mr-2" />
-                  Search Organization
-                </Button>
-                
-                {organizations.length > 0 && (
-                  <div className="space-y-3 mt-4">
-                    <div className="text-sm font-medium text-gray-700">Select Organization</div>
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
-                      {organizations.map((org) => (
-                        <div
-                          key={org.id}
-                          onClick={() => selectOrganization(org)}
-                          className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-colors"
-                        >
-                          <div className="p-2 bg-blue-100 rounded-lg">
-                            <Building className="h-4 w-4 text-blue-600" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="font-medium text-gray-900">{org.name}</div>
-                            {org.code && (
-                              <div className="text-xs text-gray-500">Code: {org.code}</div>
-                            )}
-                          </div>
-                          <div className="p-1">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                          </div>
-                        </div>
-                      ))}
+
+                <div className="flex gap-3 rounded-xl border border-border/60 bg-muted/40 p-3.5">
+                  <div className="mt-1 h-6 w-6 flex items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    2
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Sign in securely</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Use your employee code or email. Your organization and access level are verified automatically.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 rounded-xl border border-border/60 bg-muted/40 p-3.5">
+                  <div className="mt-1 h-6 w-6 flex items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    ✓
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Smart access control</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Blocked users, mismatched organizations, and invalid accounts are automatically handled.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>Protected with organizational role checks</span>
+                <span className="rounded-full border border-border/70 px-2 py-0.5 bg-background/80">
+                  Super admin • HR • Employee
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Right / Auth panel */}
+          <Card className="bg-background/90 border-border/70 backdrop-blur-xl shadow-2xl">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <CardTitle className="text-xl font-semibold">
+                    {isCompanyStep
+                      ? 'Select your organization'
+                      : showForgotPassword
+                      ? 'Reset your password'
+                      : selectedOrganization
+                      ? 'Sign in to your account'
+                      : 'Super admin login'}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    {isCompanyStep
+                      ? 'Start by finding your company. We’ll remember this next time.'
+                      : showForgotPassword
+                      ? 'Enter your email or employee code to receive reset instructions.'
+                      : selectedOrganization
+                      ? 'Use your employee code or registered email to continue.'
+                      : 'Use your email address registered as super admin.'}
+                  </p>
+                </div>
+
+                <div className="hidden sm:flex items-center gap-1 rounded-full border border-border/50 px-2 py-1 text-[10px] font-medium text-muted-foreground bg-muted/60">
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full ${
+                      isCompanyStep ? 'bg-primary/10 text-primary' : ''
+                    }`}
+                  >
+                    Organization
+                  </span>
+                  <span className="text-muted-foreground/50">→</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full ${
+                      isLoginStep ? 'bg-primary/10 text-primary' : ''
+                    }`}
+                  >
+                    Login
+                  </span>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="pt-2 space-y-5">
+              {/* Step: Organization selection */}
+              {isCompanyStep && !showForgotPassword && (
+                <div className="space-y-5">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Search organization
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={companySearch}
+                        onChange={e => setCompanySearch(e.target.value)}
+                        placeholder="Type company name or code"
+                        onKeyDown={e => e.key === 'Enter' && searchOrganizations()}
+                        className="text-sm"
+                      />
+                      <Button
+                        onClick={searchOrganizations}
+                        className="shrink-0 text-sm font-medium"
+                      >
+                        Search
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      We’ll filter only active organizations. Your selection will be remembered on
+                      this device.
+                    </p>
+                  </div>
+
+                  {organizations.length > 0 && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Choose from results
+                      </label>
+                      <div className="max-h-56 space-y-1 overflow-auto pr-1">
+                        {organizations.map(org => (
+                          <button
+                            key={org.id}
+                            type="button"
+                            onClick={() => selectOrganization(org)}
+                            className="w-full text-left rounded-lg border border-border/70 bg-muted/40 px-3 py-2.5 text-sm transition-all hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <div className="font-medium">{org.name}</div>
+                                {org.code && (
+                                  <div className="text-[11px] text-muted-foreground mt-0.5">
+                                    Code: {org.code}
+                                  </div>
+                                )}
+                              </div>
+                              <span className="text-[11px] rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+                                Select
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="relative my-2">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-dashed border-border/70" />
+                    </div>
+                    <div className="relative flex justify-center text-[10px] uppercase">
+                      <span className="bg-background/90 px-3 text-muted-foreground">
+                        Or continue as super admin
+                      </span>
                     </div>
                   </div>
-                )}
-                
-                <div className="relative my-4">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-300"></div>
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-2 bg-white text-gray-500">Or continue as</span>
-                  </div>
+
+                  <Button
+                    variant="outline"
+                    className="w-full text-sm font-medium"
+                    onClick={() => {
+                      setSelectedOrganization(null);
+                      setStep('login');
+                    }}
+                  >
+                    Login with super admin email
+                  </Button>
                 </div>
-                
-                <Button 
-                  variant="outline" 
-                  className="w-full border-gray-300 hover:border-blue-300 hover:bg-blue-50"
-                  onClick={() => {
-                    setSelectedOrganization(null);
-                    setStep('login');
-                  }}
-                >
-                  <User className="h-4 w-4 mr-2" />
-                  Super Admin / System Admin
-                </Button>
-              </div>
-            ) : !showForgotPassword ? (
-              <div className="space-y-4">
-                {/* Organization Display */}
-                {selectedOrganization && (
-                  <div className="bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-white rounded-lg border border-blue-200">
-                          <Building className="h-4 w-4 text-blue-600" />
-                        </div>
-                        <div>
-                          <div className="font-medium text-blue-900">{selectedOrganization.name}</div>
-                          <div className="text-xs text-blue-700">
-                            {selectedOrganization.code && `Code: ${selectedOrganization.code}`}
+              )}
+
+              {/* Step: Login + Forgot password */}
+              {!isCompanyStep && !showForgotPassword && (
+                <div className="space-y-5">
+                  {selectedOrganization && (
+                    <div className="flex items-center justify-between rounded-lg border border-border/70 bg-muted/40 px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        {selectedOrganization.logoUrl ? (
+                          <div className="h-9 w-9 overflow-hidden rounded-full bg-background/70 ring-1 ring-border/40">
+                            <img
+                              src={selectedOrganization.logoUrl}
+                              alt={selectedOrganization.name}
+                              className="h-full w-full object-contain"
+                            />
                           </div>
+                        ) : (
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                            {selectedOrganization.name?.charAt(0)?.toUpperCase()}
+                          </div>
+                        )}
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-medium leading-tight">
+                            {selectedOrganization.name}
+                          </p>
+                          {selectedOrganization.code && (
+                            <p className="text-[11px] text-muted-foreground leading-tight">
+                              Code: {selectedOrganization.code}
+                            </p>
+                          )}
                         </div>
                       </div>
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="sm"
+                        className="text-xs px-2 py-1 h-auto"
                         onClick={() => {
                           setStep('company');
                           setOrganizations([]);
                           setCompanySearch('');
                         }}
-                        className="text-blue-600 hover:text-blue-800 hover:bg-blue-100"
                       >
-                        <ArrowLeft className="h-3 w-3 mr-1" />
                         Change
                       </Button>
                     </div>
-                  </div>
-                )}
-                
-                {/* Super Admin Notice */}
-                {!selectedOrganization && (
-                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-lg p-3">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-white rounded-lg border border-purple-200">
-                        <User className="h-4 w-4 text-purple-600" />
-                      </div>
-                      <div>
-                        <div className="font-medium text-purple-900">Super Admin Login</div>
-                        <div className="text-xs text-purple-700">Use your system administrator credentials</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Login Form */}
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="employeeCode" className="text-sm font-medium text-gray-700">
-                      {selectedOrganization ? 'Employee Code or Email' : 'Email Address'}
-                    </Label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <Input
-                        id="employeeCode"
-                        value={employeeCode}
-                        onChange={(e) => setEmployeeCode(e.target.value)}
-                        placeholder={selectedOrganization ? "e.g., W0115 or admin@company.com" : "admin@example.com"}
-                        className="pl-10 bg-gray-50 border-gray-200"
-                        required
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-                      Password
-                    </Label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <Input
-                        id="password"
-                        type={showPassword ? "text" : "password"}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="pl-10 pr-10 bg-gray-50 border-gray-200"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <Button
-                      type="button"
-                      variant="link"
-                      className="px-0 text-blue-600 hover:text-blue-800"
-                      onClick={() => setShowForgotPassword(true)}
-                    >
-                      Forgot password?
-                    </Button>
-                  </div>
-                  
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-sm"
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Signing in...
-                      </>
-                    ) : (
-                      'Sign In'
-                    )}
-                  </Button>
-                  
-                  {!selectedOrganization && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full border-gray-300 hover:border-blue-300 hover:bg-blue-50"
-                      onClick={() => setStep('company')}
-                    >
-                      <Building className="h-4 w-4 mr-2" />
-                      Back to Organization Selection
-                    </Button>
                   )}
-                </form>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* Forgot Password Form */}
-                <div className="flex items-center gap-2 mb-4">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowForgotPassword(false)}
-                    className="p-0 h-auto"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                  </Button>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Reset Password</h3>
-                    <p className="text-sm text-gray-600">Enter your details to receive reset instructions</p>
-                  </div>
-                </div>
-                
-                <form onSubmit={handleForgotPassword} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="resetEmail" className="text-sm font-medium text-gray-700">
-                      Email Address or Employee Code
-                    </Label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+
+                  {!selectedOrganization && (
+                    <div className="rounded-lg border border-blue-300/40 bg-blue-50/70 p-3 text-xs dark:border-blue-800/60 dark:bg-blue-950/70">
+                      <p className="font-medium text-blue-900 dark:text-blue-100">
+                        Super admin login
+                      </p>
+                      <p className="mt-1 text-[11px] text-blue-800/80 dark:text-blue-300">
+                        Sign in using the email address assigned to your super admin account.
+                      </p>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        {selectedOrganization ? 'Employee code or email' : 'Email'}
+                      </label>
                       <Input
-                        id="resetEmail"
+                        value={employeeCode}
+                        onChange={e => setEmployeeCode(e.target.value)}
+                        placeholder={
+                          selectedOrganization
+                            ? 'e.g. W0115 or admin@company.com'
+                            : 'admin@example.com'
+                        }
                         type="text"
-                        value={resetEmail}
-                        onChange={(e) => setResetEmail(e.target.value)}
-                        placeholder="Enter your email or employee code"
-                        className="pl-10 bg-gray-50 border-gray-200"
                         required
+                        className="text-sm"
                       />
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      We'll send a password reset link to your registered email address
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <label className="font-medium text-muted-foreground">Password</label>
+                        <button
+                          type="button"
+                          className="text-[11px] text-primary hover:underline"
+                          onClick={() => setShowForgotPassword(true)}
+                        >
+                          Forgot password?
+                        </button>
+                      </div>
+                      <Input
+                        type="password"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        required
+                        className="text-sm"
+                      />
+                    </div>
+
+                    <Button type="submit" className="w-full text-sm font-medium">
+                      Continue
+                    </Button>
+
+                    {!selectedOrganization && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full text-xs font-medium mt-1.5"
+                        onClick={() => setStep('company')}
+                      >
+                        Back to organization selection
+                      </Button>
+                    )}
+                  </form>
+                </div>
+              )}
+
+              {showForgotPassword && (
+                <form onSubmit={handleForgotPassword} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Email address or employee code
+                    </label>
+                    <Input
+                      type="text"
+                      value={resetEmail}
+                      onChange={e => setResetEmail(e.target.value)}
+                      placeholder="Enter your email or employee code"
+                      required
+                      className="text-sm"
+                    />
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      We’ll send a secure link to your registered email address. If you use an
+                      employee code, make sure you’ve selected the correct organization.
                     </p>
                   </div>
-                  
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-sm"
-                    disabled={loading}
+
+                  <Button type="submit" className="w-full text-sm font-medium">
+                    Send reset link
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="w-full text-xs"
+                    onClick={() => setShowForgotPassword(false)}
                   >
-                    {loading ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Sending...
-                      </>
-                    ) : (
-                      'Send Reset Link'
-                    )}
+                    Back to login
                   </Button>
                 </form>
-              </div>
-            )}
-          </CardContent>
-          
-          <div className="px-6 pb-6">
-            <div className="text-center text-xs text-gray-500">
-              <p>© {new Date().getFullYear()} LogiCore – Intelligent Workforce Management. All rights reserved.</p>
-              <p className="mt-1">Secure login with enterprise-grade authentication</p>
-            </div>
-          </div>
-        </Card>
+              )}
+
+              {!showForgotPassword && (
+                <div className="pt-2 border-t border-dashed border-border/70 mt-2">
+                  <p className="text-[11px] text-muted-foreground text-center">
+                    Having trouble signing in? Contact your HR or system administrator for access.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
