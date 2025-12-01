@@ -7,48 +7,25 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Users, TrendingUp, Calendar, Phone, Mail, DollarSign } from 'lucide-react';
+import { Users, Calendar, Phone, Mail, DollarSign, Clock, TrendingUp, Home, Briefcase } from 'lucide-react';
 import BirthdayWidget from './BirthdayWidget';
 
 const EmployeeDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [widgetPreferences, setWidgetPreferences] = useState({
-    birthdayWidget: true,
-    todayAttendance: true,
-    profileCard: true,
-    workStats: true,
-    teamStats: true,
-    quickActions: true,
-  });
   const [employeeData, setEmployeeData] = useState<any>(null);
+  const [todayAttendance, setTodayAttendance] = useState<any>(null);
   const [stats, setStats] = useState({
     avgWorkHours: 0,
     weeklyTrend: '+0.5%',
-    onsiteTeam: 80,
-    remoteTeam: 20,
     weeklyHours: [0, 0, 0, 0, 0, 0, 0]
   });
-  const [todayAttendance, setTodayAttendance] = useState<any>(null);
 
   useEffect(() => {
     fetchEmployeeData();
-    calculateWorkStats();
     fetchTodayAttendance();
-    loadWidgetPreferences();
+    calculateWorkStats();
   }, [user]);
-
-  const loadWidgetPreferences = async () => {
-    if (!user) return;
-    try {
-      const prefsDoc = await getDocs(query(collection(db, 'user_preferences'), where('userId', '==', user.uid)));
-      if (!prefsDoc.empty && prefsDoc.docs[0].data().dashboardWidgets) {
-        setWidgetPreferences(prefsDoc.docs[0].data().dashboardWidgets);
-      }
-    } catch (error) {
-      console.error('Error loading widget preferences:', error);
-    }
-  };
 
   const fetchTodayAttendance = async () => {
     if (!user) return;
@@ -84,10 +61,6 @@ const EmployeeDashboard = () => {
   const calculateWorkStats = async () => {
     if (!user) return;
     try {
-      // Get last 7 days of attendance
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-      
       const q = query(
         collection(db, 'attendance'),
         where('employeeId', '==', user.uid)
@@ -133,204 +106,268 @@ const EmployeeDashboard = () => {
   };
 
   return (
-    <div className="space-y-4 md:space-y-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold">
-          {getGreeting()} {employeeData?.name || user?.email?.split('@')[0] || 'User'}
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="space-y-2">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
+          {getGreeting()}, {employeeData?.name || user?.displayName || 'Employee'}!
         </h1>
+        <p className="text-gray-600">Here's your dashboard overview</p>
       </div>
 
-      <div className="space-y-4 md:space-y-6">
-        {/* Overview Content */}
-        {widgetPreferences.birthdayWidget && <BirthdayWidget />}
+      {/* Main Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - Profile & Attendance */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Today's Attendance */}
+          <Card className="bg-white border border-gray-200 shadow-sm">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <h3 className="font-semibold text-lg text-gray-900">Today's Attendance</h3>
+                  <p className="text-sm text-gray-600">
+                    {new Date().toLocaleDateString('en-US', { 
+                      weekday: 'long', 
+                      month: 'short', 
+                      day: 'numeric' 
+                    })}
+                  </p>
+                </div>
+                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                  {todayAttendance ? 'Present' : 'Not Checked In'}
+                </Badge>
+              </div>
+              
+              {todayAttendance && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Clock className="h-4 w-4" />
+                      Punch In
+                    </div>
+                    <p className="text-xl font-semibold text-green-600">
+                      {new Date(todayAttendance.punchIn).toLocaleTimeString('en-US', { 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
+                    </p>
+                  </div>
+                  {todayAttendance.punchOut && (
+                    <>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                          <Clock className="h-4 w-4" />
+                          Punch Out
+                        </div>
+                        <p className="text-xl font-semibold text-red-600">
+                          {new Date(todayAttendance.punchOut).toLocaleTimeString('en-US', { 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                          <Clock className="h-4 w-4" />
+                          Total Hours
+                        </div>
+                        <p className="text-xl font-semibold text-blue-600">
+                          {((new Date(todayAttendance.punchOut).getTime() - new Date(todayAttendance.punchIn).getTime()) / (1000 * 60 * 60)).toFixed(2)} hrs
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-        {/* Today's Punch Status */}
-        {widgetPreferences.todayAttendance && todayAttendance && (
-            <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-secondary/5">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
-                      <Calendar className="h-6 w-6 text-green-600" />
+          {/* Work Hours Statistics */}
+          <Card className="bg-white border border-gray-200 shadow-sm">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg font-semibold text-gray-900">Weekly Work Hours</CardTitle>
+                <Badge className="bg-green-50 text-green-700 border-green-200">
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                  {stats.weeklyTrend}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-end justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">Average Hours / Day</p>
+                    <p className="text-3xl font-bold text-gray-900">{stats.avgWorkHours}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-600">This Week</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {(stats.weeklyHours.reduce((a, b) => a + b, 0)).toFixed(1)} hrs
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat</span>
+                    <span>Sun</span>
+                  </div>
+                  <div className="h-16 flex items-end gap-1">
+                    {stats.weeklyHours.map((hours, i) => (
+                      <div 
+                        key={i} 
+                        className="flex-1 bg-gradient-to-t from-blue-500 to-blue-600 rounded-t transition-all hover:opacity-90" 
+                        style={{ 
+                          height: hours > 0 ? `${Math.min((hours / 10) * 100, 100)}%` : '4%',
+                          minHeight: '4px'
+                        }} 
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions */}
+          <Card className="bg-white border border-gray-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold text-gray-900">Quick Actions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Button 
+                  onClick={() => navigate('/attendance')}
+                  className="flex flex-col h-20 gap-2 bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 hover:border-blue-300 hover:from-blue-100 hover:to-blue-200"
+                >
+                  <Calendar className="h-5 w-5 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-700">Attendance</span>
+                </Button>
+                
+                <Button 
+                  onClick={() => navigate('/leave')}
+                  className="flex flex-col h-20 gap-2 bg-gradient-to-br from-green-50 to-green-100 border border-green-200 hover:border-green-300 hover:from-green-100 hover:to-green-200"
+                >
+                  <Calendar className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium text-green-700">Leave</span>
+                </Button>
+                
+                <Button 
+                  onClick={() => navigate('/salary')}
+                  className="flex flex-col h-20 gap-2 bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200 hover:border-amber-300 hover:from-amber-100 hover:to-amber-200"
+                >
+                  <DollarSign className="h-5 w-5 text-amber-600" />
+                  <span className="text-sm font-medium text-amber-700">Salary</span>
+                </Button>
+                
+                <Button 
+                  onClick={() => navigate('/profile')}
+                  className="flex flex-col h-20 gap-2 bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 hover:border-purple-300 hover:from-purple-100 hover:to-purple-200"
+                >
+                  <Users className="h-5 w-5 text-purple-600" />
+                  <span className="text-sm font-medium text-purple-700">Profile</span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Column - Profile & Team */}
+        <div className="space-y-6">
+          {/* Profile Card */}
+          <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200">
+            <CardContent className="p-6">
+              <div className="flex flex-col items-center text-center space-y-4">
+                <Avatar className="w-24 h-24 border-4 border-white shadow-md">
+                  <AvatarImage src={employeeData?.photoURL} />
+                  <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl">
+                    {employeeData?.name?.charAt(0) || 'U'}
+                  </AvatarFallback>
+                </Avatar>
+                
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">{employeeData?.name || 'Employee'}</h3>
+                  <p className="text-gray-600">{employeeData?.designation || 'Staff'}</p>
+                  <Badge className="mt-2 bg-blue-100 text-blue-700 hover:bg-blue-100">
+                    {employeeData?.department || 'Department'}
+                  </Badge>
+                </div>
+                
+                <div className="flex gap-2 w-full">
+                  <Button variant="outline" size="sm" className="flex-1 border-gray-300">
+                    <Phone className="h-4 w-4 mr-2" />
+                    Call
+                  </Button>
+                  <Button size="sm" className="flex-1 bg-blue-600 hover:bg-blue-700">
+                    <Mail className="h-4 w-4 mr-2" />
+                    Email
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Team Stats */}
+          <Card className="bg-white border border-gray-200 shadow-sm">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Users className="h-5 w-5 text-blue-600" />
+                </div>
+                <CardTitle className="text-lg font-semibold text-gray-900">Team Overview</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-100 rounded-lg">
+                      <Briefcase className="h-4 w-4 text-green-600" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-lg">Today's Attendance</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                      </p>
+                      <p className="font-medium text-gray-900">Onsite</p>
+                      <p className="text-sm text-gray-600">Team Members</p>
                     </div>
                   </div>
-                  <div className="flex gap-6 flex-wrap">
-                    <div className="text-center">
-                      <p className="text-sm text-muted-foreground mb-1">Punch In</p>
-                      <p className="text-xl font-bold text-green-600">
-                        {new Date(todayAttendance.punchIn).toLocaleTimeString('en-US', { 
-                          hour: '2-digit', 
-                          minute: '2-digit',
-                          hour12: true 
-                        })}
-                      </p>
-                    </div>
-                    {todayAttendance.punchOut && (
-                      <>
-                        <div className="text-center">
-                          <p className="text-sm text-muted-foreground mb-1">Punch Out</p>
-                          <p className="text-xl font-bold text-red-600">
-                            {new Date(todayAttendance.punchOut).toLocaleTimeString('en-US', { 
-                              hour: '2-digit', 
-                              minute: '2-digit',
-                              hour12: true 
-                            })}
-                          </p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-sm text-muted-foreground mb-1">Total Hours</p>
-                          <p className="text-xl font-bold text-primary">
-                            {((new Date(todayAttendance.punchOut).getTime() - new Date(todayAttendance.punchIn).getTime()) / (1000 * 60 * 60)).toFixed(2)} hrs
-                          </p>
-                        </div>
-                      </>
-                    )}
+                  <div className="text-right">
+                    <p className="text-xl font-bold text-gray-900">80%</p>
+                    <Badge className="bg-green-50 text-green-700 border-green-200">
+                      <TrendingUp className="h-3 w-3 mr-1" />
+                      +2.5%
+                    </Badge>
                   </div>
                 </div>
-              </CardContent>
+                
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-orange-100 rounded-lg">
+                      <Home className="h-4 w-4 text-orange-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">Remote</p>
+                      <p className="text-sm text-gray-600">Team Members</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xl font-bold text-gray-900">20%</p>
+                    <Badge className="bg-orange-50 text-orange-700 border-orange-200">
+                      <TrendingUp className="h-3 w-3 mr-1" />
+                      +1.8%
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
           </Card>
-        )}
-        
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-          {/* Profile Card */}
-          {widgetPreferences.profileCard && (
-            <Card className="lg:col-span-1 bg-gradient-to-br from-secondary/20 to-primary/10 border-primary/20">
-              <CardContent className="p-6">
-                <div className="flex flex-col items-center text-center space-y-4">
-                  <Avatar className="w-32 h-32">
-                    <AvatarImage src={employeeData?.photoURL} />
-                    <AvatarFallback className="text-2xl bg-primary text-primary-foreground">
-                      {employeeData?.name?.charAt(0) || 'U'}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <h3 className="text-xl font-bold">{employeeData?.name || 'Employee'}</h3>
-                    <p className="text-muted-foreground">{employeeData?.designation || 'Staff'}</p>
-                  </div>
-                  <Badge className="bg-foreground text-background px-4 py-2">
-                    {employeeData?.experience || '0'}+ years experience
-                  </Badge>
-                  <div className="flex gap-2 w-full">
-                    <Button size="icon" variant="outline" className="rounded-full flex-1">
-                      <Phone className="h-4 w-4" />
-                    </Button>
-                    <Button size="icon" variant="outline" className="rounded-full flex-1 bg-foreground text-background">
-                      <Mail className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
-          {/* Work Stats */}
-          <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-            {widgetPreferences.workStats && (
-              <Card className="border-primary/20">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="w-12 h-12 rounded-xl bg-secondary/20 flex items-center justify-center">
-                      <Users className="h-6 w-6 text-secondary" />
-                    </div>
-                    <div className="text-right">
-                      <div className="text-3xl font-bold">{stats.avgWorkHours}</div>
-                      <Badge variant="secondary" className="bg-accent text-accent-foreground">
-                        {stats.weeklyTrend}
-                      </Badge>
-                    </div>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-4">avg hours / week</p>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">2 Hours</span>
-                      <span className="text-muted-foreground">10 Hours</span>
-                    </div>
-                    <div className="h-16 flex items-end gap-1">
-                      {stats.weeklyHours.map((hours, i) => (
-                        <div 
-                          key={i} 
-                          className="flex-1 bg-secondary rounded-t transition-all" 
-                          style={{ height: hours > 0 ? `${Math.min((hours / 10) * 100, 100)}%` : '4%' }} 
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {widgetPreferences.teamStats && (
-              <Card className="border-primary/20">
-                <CardHeader>
-                  <CardTitle className="text-lg">Team Statistics</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-secondary" />
-                        <span className="text-sm">Onsite team</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl font-bold">{stats.onsiteTeam}%</span>
-                        <Badge variant="secondary" className="bg-accent text-accent-foreground">
-                          <TrendingUp className="h-3 w-3 mr-1" />
-                          +2.6%
-                        </Badge>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-info" />
-                        <span className="text-sm">Remote team</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl font-bold">{stats.remoteTeam}%</span>
-                        <Badge variant="secondary" className="bg-accent text-accent-foreground">
-                          <TrendingUp className="h-3 w-3 mr-1" />
-                          +2.6%
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {widgetPreferences.quickActions && (
-              <Card className="md:col-span-2 border-primary/20">
-                <CardHeader>
-                  <CardTitle>Quick Actions</CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                  <Button onClick={() => navigate('/attendance')} className="h-auto py-3 md:py-4 flex-col gap-2">
-                    <Calendar className="h-5 w-5 md:h-6 md:w-6" />
-                    <span className="text-xs">Attendance</span>
-                  </Button>
-                  <Button onClick={() => navigate('/leave')} variant="outline" className="h-auto py-3 md:py-4 flex-col gap-2">
-                    <Calendar className="h-5 w-5 md:h-6 md:w-6" />
-                    <span className="text-xs">Leave Request</span>
-                  </Button>
-                  <Button onClick={() => navigate('/salary')} variant="outline" className="h-auto py-3 md:py-4 flex-col gap-2">
-                    <DollarSign className="h-5 w-5 md:h-6 md:w-6" />
-                    <span className="text-xs">Salary</span>
-                  </Button>
-                  <Button onClick={() => navigate('/profile')} variant="outline" className="h-auto py-3 md:py-4 flex-col gap-2">
-                    <Users className="h-5 w-5 md:h-6 md:w-6" />
-                    <span className="text-xs">Profile</span>
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+          {/* Birthdays */}
+          <BirthdayWidget />
         </div>
       </div>
     </div>
