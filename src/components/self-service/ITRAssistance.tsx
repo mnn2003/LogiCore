@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { FileText, Upload, Download, Eye, Calendar, FileCheck, CloudUpload, CheckCircle, AlertCircle, IndianRupee } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
-import { collection, addDoc, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { collection, addDoc, query, where, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
 import { DocumentViewer } from '@/components/ui/document-viewer';
@@ -32,7 +32,7 @@ interface SampleDocument {
 }
 
 export default function ITRAssistance() {
-  const { user } = useAuth();
+  const { user, organizationId } = useAuth();
   const [uploadedDocuments, setUploadedDocuments] = useState<ITRDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -158,8 +158,14 @@ export default function ITRAssistance() {
       // Determine document type based on filename
       const docType = getDocumentType(selectedFile.name);
 
+      // Fetch employee data for organizationId
+      const employeeDoc = await getDoc(doc(db, 'employees', user?.uid || ''));
+      const empOrganizationId = employeeDoc.exists() ? employeeDoc.data().organizationId : organizationId;
+
       await addDoc(collection(db, 'itr_documents'), {
         userId: user?.uid,
+        employeeId: user?.uid,
+        organizationId: empOrganizationId,
         documentName: selectedFile.name,
         documentUrl: downloadURL,
         documentType: docType,
