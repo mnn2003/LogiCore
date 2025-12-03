@@ -120,23 +120,49 @@ const SalarySlipManagement = () => {
   const fetchSalarySlips = async () => {
     try {
       setLoading(true);
-      // Build query with organizationId filter if not super-admin
-      let q;
-      if (organizationId) {
-        q = query(
-          collection(db, 'salary_slips'),
-          where('organizationId', '==', organizationId),
-          orderBy('year', 'desc'),
-          orderBy('month', 'desc')
-        );
-      } else {
-        q = query(collection(db, 'salary_slips'), orderBy('year', 'desc'), orderBy('month', 'desc'));
+      console.log('Fetching salary slips...');
+      console.log('Organization ID:', organizationId);
+      
+      let slipsData: SalarySlip[] = [];
+      
+      // Try with ordering first (requires composite index)
+      try {
+        let q;
+        if (organizationId) {
+          q = query(
+            collection(db, 'salary_slips'),
+            where('organizationId', '==', organizationId),
+            orderBy('year', 'desc'),
+            orderBy('month', 'desc')
+          );
+        } else {
+          q = query(collection(db, 'salary_slips'), orderBy('year', 'desc'), orderBy('month', 'desc'));
+        }
+        const snapshot = await getDocs(q);
+        console.log('Salary slips found:', snapshot.docs.length);
+        slipsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...(doc.data() as any)
+        })) as SalarySlip[];
+      } catch (indexError: any) {
+        console.warn('Index error, trying fallback query:', indexError.code);
+        // Fallback: fetch without orderBy and sort manually
+        let q;
+        if (organizationId) {
+          q = query(
+            collection(db, 'salary_slips'),
+            where('organizationId', '==', organizationId)
+          );
+        } else {
+          q = query(collection(db, 'salary_slips'));
+        }
+        const snapshot = await getDocs(q);
+        console.log('Salary slips found (fallback):', snapshot.docs.length);
+        slipsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...(doc.data() as any)
+        })) as SalarySlip[];
       }
-      const snapshot = await getDocs(q);
-      const slipsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...(doc.data() as any)
-      })) as SalarySlip[];
       
       // Sort by year and month (newest first)
       slipsData.sort((a, b) => {
@@ -213,6 +239,7 @@ const SalarySlipManagement = () => {
         employeeId: formData.employeeId,
         employeeName: employee.name,
         employeeCode: employee.employeeCode,
+        organizationId: organizationId,
         month: formData.month,
         year: formData.year,
         basicSalary: parseFloat(formData.basicSalary) || 0,
