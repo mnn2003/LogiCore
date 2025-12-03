@@ -27,7 +27,7 @@ interface InvestmentProof {
 }
 
 export default function InvestmentProofs() {
-  const { user } = useAuth();
+  const { user, organizationId } = useAuth();
   const [proofs, setProofs] = useState<InvestmentProof[]>([]);
   const [loading, setLoading] = useState(true);
   const [newProof, setNewProof] = useState({
