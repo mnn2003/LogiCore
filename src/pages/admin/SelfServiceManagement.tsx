@@ -76,7 +76,14 @@ export default function SelfServiceManagement() {
   }, [organizationId]);
 
   const fetchAllData = async () => {
-    if (!organizationId) return;
+    console.log('Self Service Management - Fetching data...');
+    console.log('Organization ID:', organizationId);
+    
+    if (!organizationId) {
+      console.log('No organizationId - skipping fetch');
+      setLoading(false);
+      return;
+    }
     
     try {
       const [taxDocs, investmentDocs, loanDocs, reimbursementDocs] = await Promise.all([
@@ -85,6 +92,11 @@ export default function SelfServiceManagement() {
         getDocs(query(collection(db, 'loan_applications'), where('organizationId', '==', organizationId))),
         getDocs(query(collection(db, 'reimbursements'), where('organizationId', '==', organizationId)))
       ]);
+
+      console.log('Tax Declarations found:', taxDocs.docs.length);
+      console.log('Investment Proofs found:', investmentDocs.docs.length);
+      console.log('Loan Applications found:', loanDocs.docs.length);
+      console.log('Reimbursements found:', reimbursementDocs.docs.length);
 
       setTaxDeclarations(taxDocs.docs.map(doc => ({ id: doc.id, ...doc.data() } as TaxDeclaration)));
       setInvestmentProofs(investmentDocs.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvestmentProof)));
@@ -120,7 +132,28 @@ export default function SelfServiceManagement() {
   };
 
   if (loading) {
-    return <div className="text-center py-8">Loading...</div>;
+    return (
+      <Layout pageTitle="Self Service Management">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading data...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!organizationId) {
+    return (
+      <Layout pageTitle="Self Service Management">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <p className="text-muted-foreground">No organization selected. Please log in again.</p>
+          </div>
+        </div>
+      </Layout>
+    );
   }
 
   return (
