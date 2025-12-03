@@ -28,7 +28,7 @@ interface Payslip {
 }
 
 export default function PayslipDownloads() {
-  const { user } = useAuth();
+  const { user, organizationId } = useAuth();
   const [payslips, setPayslips] = useState<Payslip[]>([]);
   const [loading, setLoading] = useState(true);
 
