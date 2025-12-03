@@ -23,7 +23,7 @@ interface PolicyDocument {
 }
 
 export default function PolicyDocuments() {
-  const { userRole } = useAuth();
+  const { userRole, organizationId } = useAuth();
   const isAdmin = userRole === 'hr' || userRole === 'hod';
 
   const [policies, setPolicies] = useState<PolicyDocument[]>([
