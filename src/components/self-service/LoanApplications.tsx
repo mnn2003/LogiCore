@@ -26,7 +26,7 @@ interface LoanApplication {
 }
 
 export default function LoanApplications() {
-  const { user } = useAuth();
+  const { user, organizationId } = useAuth();
   const [applications, setApplications] = useState<LoanApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [newApplication, setNewApplication] = useState({
