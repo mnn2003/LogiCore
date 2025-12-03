@@ -31,7 +31,7 @@ interface Reimbursement {
 }
 
 export default function Reimbursements() {
-  const { user } = useAuth();
+  const { user, organizationId } = useAuth();
   const [reimbursements, setReimbursements] = useState<Reimbursement[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
